@@ -64,3 +64,6 @@ Ce script exécute les 6 algorithmes séquentiellement, affiche les résultats d
 Le fichier interactif contient tout le code segmenté, commenté et les rendus graphiques intégrés.
 1. Ouvrez `regression_mnassiri.ipynb` dans VSCode ou votre environnement Jupyter.
 2. Lancez l'exécution globale (Run All).
+
+
+TODO: ID3 - C4.5 - C5.0 - CART
