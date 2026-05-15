@@ -13,6 +13,10 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import train_test_split
+from sklearn.cluster import DBSCAN as SklearnDBSCAN
+from sklearn.naive_bayes import GaussianNB
+from sklearn.decomposition import PCA as SklearnPCA
+from sklearn.ensemble import GradientBoostingClassifier
 
 # Naviguer vers la racine du projet
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
@@ -167,6 +171,108 @@ class C45FromScratch:
         return self._pred1(x, node['l'] if x[node['f']] <= node['t'] else node['r'])
     def predict(self, X): return np.array([self._pred1(x, self.tree) for x in X])
 
+class DBSCANFromScratch:
+    """DBSCAN implémenté manuellement."""
+    def __init__(self, eps=0.5, min_samples=5):
+        self.eps = eps; self.min_samples = min_samples; self.labels_ = None
+    def _region_query(self, X, idx):
+        return np.where(np.sqrt(np.sum((X - X[idx])**2, axis=1)) <= self.eps)[0]
+    def fit_predict(self, X):
+        n = len(X); self.labels_ = np.full(n, -1); cluster_id = 0; visited = np.zeros(n, dtype=bool)
+        for i in range(n):
+            if visited[i]: continue
+            visited[i] = True; neighbors = self._region_query(X, i)
+            if len(neighbors) < self.min_samples: continue
+            self.labels_[i] = cluster_id; seeds = list(neighbors); j = 0
+            while j < len(seeds):
+                q = seeds[j]
+                if not visited[q]:
+                    visited[q] = True; q_nb = self._region_query(X, q)
+                    if len(q_nb) >= self.min_samples: seeds.extend(q_nb)
+                if self.labels_[q] == -1: self.labels_[q] = cluster_id
+                j += 1
+            cluster_id += 1
+        return self.labels_
+
+class NaiveBayesFromScratch:
+    """Naive Bayes Gaussien implémenté manuellement."""
+    def __init__(self): self.mean = None; self.var = None; self.priors = None; self.classes = None
+    def fit(self, X, y):
+        self.classes = np.unique(y); nc = len(self.classes); nf = X.shape[1]
+        self.mean = np.zeros((nc, nf)); self.var = np.zeros((nc, nf)); self.priors = np.zeros(nc)
+        for i, c in enumerate(self.classes):
+            Xc = X[y == c]; self.mean[i] = Xc.mean(0); self.var[i] = Xc.var(0); self.priors[i] = len(Xc)/len(y)
+    def predict(self, X):
+        preds = []
+        for x in X:
+            posts = []
+            for i, c in enumerate(self.classes):
+                prior = np.log(self.priors[i])
+                lk = -0.5*np.sum(np.log(2*np.pi*self.var[i]+1e-10) + (x-self.mean[i])**2/(self.var[i]+1e-10))
+                posts.append(prior + lk)
+            preds.append(self.classes[np.argmax(posts)])
+        return np.array(preds)
+
+class PCAFromScratch:
+    """Analyse en Composantes Principales implémentée manuellement."""
+    def __init__(self, n_components=2): self.n_components = n_components; self.components = None; self.mean = None
+    def fit(self, X):
+        self.mean = np.mean(X, axis=0); Xc = X - self.mean
+        cov = np.cov(Xc.T); eigvals, eigvecs = np.linalg.eigh(cov)
+        idx = np.argsort(eigvals)[::-1]; self.components = eigvecs[:, idx[:self.n_components]]
+        self.explained_variance_ratio_ = eigvals[idx[:self.n_components]] / np.sum(eigvals)
+        return self
+    def transform(self, X): return (X - self.mean).dot(self.components)
+
+class XGBoostFromScratch:
+    """Gradient Boosting simplifié avec souches de décision."""
+    def __init__(self, n_estimators=50, lr=0.1):
+        self.n_est = n_estimators; self.lr = lr; self.stumps = []; self.base = 0
+    def _sigmoid(self, z): return 1/(1+np.exp(-np.clip(z,-500,500)))
+    def fit(self, X, y):
+        pos = np.sum(y==1); neg = np.sum(y==0)
+        self.base = np.log((pos+1e-10)/(neg+1e-10))
+        F = np.full(len(y), self.base, dtype=float)
+        for _ in range(self.n_est):
+            res = y - self._sigmoid(F); best = (0, 0, 0, 0, float('inf'))
+            for f in range(X.shape[1]):
+                for t in np.percentile(X[:,f], np.arange(10,100,10)):
+                    lm = X[:,f]<=t
+                    if np.sum(lm)==0 or np.sum(~lm)==0: continue
+                    lv, rv = np.mean(res[lm]), np.mean(res[~lm])
+                    loss = np.mean((res - np.where(lm, lv, rv))**2)
+                    if loss < best[4]: best = (f, t, lv, rv, loss)
+            self.stumps.append(best[:4])
+            f,t,lv,rv = best[:4]; F += self.lr * np.where(X[:,f]<=t, lv, rv)
+    def predict(self, X):
+        F = np.full(len(X), self.base, dtype=float)
+        for f,t,lv,rv in self.stumps: F += self.lr * np.where(X[:,f]<=t, lv, rv)
+        return (self._sigmoid(F) >= 0.5).astype(int)
+
+class GridWorld:
+    """Environnement GridWorld pour le Q-Learning."""
+    def __init__(self, size=5):
+        self.size = size; self.goal = (size-1, size-1)
+        self.obstacles = [(1,1),(2,3),(3,1)]; self.actions = [(0,1),(0,-1),(1,0),(-1,0)]
+    def reset(self): self.state = (0,0); return self.state
+    def step(self, action):
+        dx, dy = self.actions[action]
+        ns = (max(0,min(self.size-1,self.state[0]+dx)), max(0,min(self.size-1,self.state[1]+dy)))
+        if ns in self.obstacles: ns = self.state
+        self.state = ns
+        if self.state == self.goal: return self.state, 10, True
+        return self.state, -0.1, False
+
+class QLearningAgent:
+    """Agent Q-Learning."""
+    def __init__(self, size=5, lr=0.1, gamma=0.99, epsilon=0.1):
+        self.q = np.zeros((size, size, 4)); self.lr = lr; self.gamma = gamma; self.eps = epsilon
+    def act(self, s):
+        if np.random.random() < self.eps: return np.random.randint(4)
+        return np.argmax(self.q[s[0], s[1]])
+    def update(self, s, a, r, ns):
+        self.q[s[0],s[1],a] += self.lr*(r + self.gamma*np.max(self.q[ns[0],ns[1]]) - self.q[s[0],s[1],a])
+
 # ==========================================
 # EXÉCUTION PRINCIPALE
 # ==========================================
@@ -184,6 +290,7 @@ try:
     # Données régression
     X_simple = df[['age']].values; y = df[['cost']].values
     X_multi = df[['age', 'bmi', 'children']].values
+    X_all = df[['age', 'bmi', 'children']].values  # Pour PCA
 
     # Données classification
     median_cost = np.median(df['cost'].values)
@@ -212,7 +319,7 @@ try:
                 Patch(facecolor='#e74c3c', label='Coût Élevé'),
                 Patch(facecolor='#3498db', label='Coût Faible')]
 
-    fig, axes = plt.subplots(3, 3, figsize=(18, 18))
+    fig, axes = plt.subplots(5, 3, figsize=(18, 30))
     fig.canvas.manager.set_window_title('Aperçu des Modèles de Machine Learning')
 
     # ====== 1. RÉGRESSION LINÉAIRE SIMPLE ======
@@ -345,12 +452,97 @@ try:
     plot_cls(axes[2,2], Z9a, Z9b, 'C4.5 (Ratio de Gain)', 'From Scratch', 'Bibliothèque', 'graphs/c45.png')
     log_step("Sauvegarde du graphique", 0.5)
 
+    # ====== 10. DBSCAN ======
+    print("\n" + "-"*45 + "\n 10 : DBSCAN (CLUSTERING)\n" + "-"*45 + '\n')
+    log_step("Calcul des modèles (From Scratch vs Bibliothèque)")
+    db_scratch = DBSCANFromScratch(eps=0.8, min_samples=5)
+    labels_scratch = db_scratch.fit_predict(X_train_scaled)
+    db_sklearn = SklearnDBSCAN(eps=0.8, min_samples=5)
+    labels_sklearn = db_sklearn.fit_predict(X_train_scaled)
+    axes[3,0].scatter(X_train_cls[:,0], X_train_cls[:,1], c=labels_scratch, cmap='tab10', s=20, alpha=0.7, edgecolors='black', linewidths=0.5)
+    axes[3,0].set_title(f'DBSCAN From Scratch ({len(set(labels_scratch)-{-1})} clusters)')
+    axes[3,0].set_xlabel('Âge'); axes[3,0].set_ylabel('BMI')
+    fig_db = plt.figure(figsize=(8,6))
+    plt.scatter(X_train_cls[:,0], X_train_cls[:,1], c=labels_scratch, cmap='tab10', s=20, alpha=0.7, edgecolors='black', linewidths=0.5)
+    plt.title('DBSCAN (From Scratch)'); plt.xlabel('Âge'); plt.ylabel('BMI')
+    plt.savefig('graphs/dbscan.png'); plt.close(fig_db)
+    log_step("Sauvegarde du graphique", 0.5)
+
+    # ====== 11. NAIVE BAYES ======
+    print("\n" + "-"*45 + "\n 11 : NAIVE BAYES\n" + "-"*45 + '\n')
+    log_step("Calcul des modèles (From Scratch vs Bibliothèque)")
+    m11 = NaiveBayesFromScratch(); m11.fit(X_train_scaled, y_train_cls)
+    s11 = GaussianNB(); s11.fit(X_train_scaled, y_train_cls)
+    Z11a = m11.predict(grid_points_scaled).reshape(xx.shape)
+    Z11b = s11.predict(grid_points_scaled).reshape(xx.shape)
+    plot_cls(axes[3,1], Z11a, Z11b, 'Naive Bayes', 'From Scratch', 'Bibliothèque', 'graphs/naive_bayes.png')
+    log_step("Sauvegarde du graphique", 0.5)
+
+    # ====== 12. PCA ======
+    print("\n" + "-"*45 + "\n 12 : PCA (RÉDUCTION DE DIMENSIONS)\n" + "-"*45 + '\n')
+    log_step("Calcul des modèles (From Scratch vs Bibliothèque)")
+    pca_scratch = PCAFromScratch(n_components=2); pca_scratch.fit(X_all)
+    X_pca_scratch = pca_scratch.transform(X_all)
+    pca_sklearn = SklearnPCA(n_components=2); pca_sklearn.fit(X_all)
+    X_pca_sklearn = pca_sklearn.transform(X_all)
+    colors_pca = np.where(y_class == 1, '#e74c3c', '#3498db')
+    axes[3,2].scatter(X_pca_scratch[:,0], X_pca_scratch[:,1], c=colors_pca, s=20, alpha=0.6, edgecolors='black', linewidths=0.5)
+    axes[3,2].set_title('PCA (From Scratch)'); axes[3,2].set_xlabel('Composante 1'); axes[3,2].set_ylabel('Composante 2')
+    axes[3,2].legend(handles=[Patch(facecolor='#e74c3c', label='Coût Élevé'), Patch(facecolor='#3498db', label='Coût Faible')], fontsize=7)
+    fig_pca = plt.figure(figsize=(8,6))
+    plt.scatter(X_pca_scratch[:,0], X_pca_scratch[:,1], c=colors_pca, s=20, alpha=0.6, edgecolors='black', linewidths=0.5)
+    plt.title('PCA — Projection 2D'); plt.xlabel('Composante 1'); plt.ylabel('Composante 2')
+    plt.legend(handles=[Patch(facecolor='#e74c3c', label='Coût Élevé'), Patch(facecolor='#3498db', label='Coût Faible')])
+    plt.savefig('graphs/pca.png'); plt.close(fig_pca)
+    log_step("Sauvegarde du graphique", 0.5)
+
+    # ====== 13. XGBOOST ======
+    print("\n" + "-"*45 + "\n 13 : XGBOOST (GRADIENT BOOSTING)\n" + "-"*45 + '\n')
+    log_step("Calcul des modèles (From Scratch vs Bibliothèque)")
+    m13 = XGBoostFromScratch(n_estimators=50, lr=0.1); m13.fit(X_train_cls, y_train_cls)
+    s13 = GradientBoostingClassifier(n_estimators=50, max_depth=3, random_state=42); s13.fit(X_train_cls, y_train_cls)
+    print("  [*] Calcul des frontières de décision XGBoost...", end="", flush=True)
+    Z13a = m13.predict(grid_points).reshape(xx.shape)
+    Z13b = s13.predict(grid_points).reshape(xx.shape)
+    print(" TERMINÉ")
+    plot_cls(axes[4,0], Z13a, Z13b, 'XGBoost', 'From Scratch', 'Bibliothèque', 'graphs/xgboost.png')
+    log_step("Sauvegarde du graphique", 0.5)
+
+    # ====== 14. Q-LEARNING ======
+    print("\n" + "-"*45 + "\n 14 : Q-LEARNING (APPRENTISSAGE PAR RENFORCEMENT)\n" + "-"*45 + '\n')
+    log_step("Entraînement de l'agent Q-Learning")
+    env = GridWorld(size=5); agent = QLearningAgent(size=5)
+    for ep in range(1000):
+        s = env.reset(); done = False
+        while not done:
+            a = agent.act(s); ns, r, done = env.step(a); agent.update(s, a, r, ns); s = ns
+    arrows = ['→','←','↓','↑']; best_actions = np.argmax(agent.q, axis=2)
+    max_q = np.max(agent.q, axis=2)
+    axes[4,1].imshow(max_q, cmap='YlOrRd', interpolation='nearest')
+    for i in range(5):
+        for j in range(5):
+            if (i,j) == env.goal: axes[4,1].text(j, i, '★', ha='center', va='center', fontsize=16)
+            elif (i,j) in env.obstacles: axes[4,1].text(j, i, '■', ha='center', va='center', fontsize=14, color='black')
+            else: axes[4,1].text(j, i, arrows[best_actions[i,j]], ha='center', va='center', fontsize=14, color='white')
+    axes[4,1].set_title('Q-Learning (Politique Apprise)'); axes[4,1].set_xticks([]); axes[4,1].set_yticks([])
+    fig_ql = plt.figure(figsize=(6,6))
+    plt.imshow(max_q, cmap='YlOrRd', interpolation='nearest')
+    for i in range(5):
+        for j in range(5):
+            if (i,j) == env.goal: plt.text(j, i, '★', ha='center', va='center', fontsize=20)
+            elif (i,j) in env.obstacles: plt.text(j, i, '■', ha='center', va='center', fontsize=18, color='black')
+            else: plt.text(j, i, arrows[best_actions[i,j]], ha='center', va='center', fontsize=18, color='white')
+    plt.title('Q-Learning — Politique Apprise'); plt.xticks([]); plt.yticks([]); plt.colorbar(label='Q-Value Max')
+    plt.savefig('graphs/qlearning.png'); plt.close(fig_ql)
+    axes[4,2].set_visible(False)  # Cacher la case vide
+    log_step("Sauvegarde du graphique", 0.5)
+
     # ====== FINALISATION ======
     print("\n" + "==="*15)
     print("\n[SUCCÈS] Tous les modèles ont été générés.")
     print("[INFO] Fermez la fenêtre du graphe ou appuyez sur Ctrl+C.")
     fig.suptitle('Aperçu des Modèles de Machine Learning', fontsize=16, fontweight='bold', y=0.99)
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.show()
     print("\n[*] Sauvegarde du graphique combiné final...")
     fig.savefig('graphs/graphe_combine_final.png', dpi=150, bbox_inches='tight')
