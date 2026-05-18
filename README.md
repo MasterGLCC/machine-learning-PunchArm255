@@ -48,30 +48,15 @@ Ce projet implémente **14 algorithmes de Machine Learning** afin de prédire et
 ├── data/
 │   └── medical_costs.csv
 ├── graphs/                              # Graphes générés (14 individuels + 1 combiné)
-├── testing/
-│   └── main.py                          # Script de test automatisé (14 algorithmes)
-├── regression_mnassiri.ipynb            # Régression
-├── classification_mnassiri.ipynb        # Classification (LogReg, KNN, SVM)
-├── arbres_decision_mnassiri.ipynb       # Arbres de Décision (ID3, CART, C4.5)
-├── non_supervise_mnassiri.ipynb         # DBSCAN + PCA
-├── bayes_boosting_mnassiri.ipynb        # Naive Bayes + XGBoost
-├── renforcement_mnassiri.ipynb          # Q-Learning
-├── pyproject.toml
-├── requirements.txt
+├── 1_regression_mnassiri.ipynb            # Régression
+├── 2_classification_mnassiri.ipynb        # Classification (LogReg, KNN, SVM)
+├── 3_arbres_decision_mnassiri.ipynb       # Arbres de Décision (ID3, CART, C4.5)
+├── 4_bayes_boosting_mnassiri.ipynb        # Naive Bayes + XGBoost
+├── 5_non_supervise_mnassiri.ipynb         # DBSCAN + PCA
+├── 6_renforcement_mnassiri.ipynb          # Q-Learning
 └── README.md
 ```
 
 ## Utilisation
 
-### Prérequis
-```bash
-pip install -r requirements.txt
-```
-
-### Option A : Test Automatisé
-```bash
-python testing/main.py
-```
-
-### Option B : Notebooks Jupyter
-Ouvrez le notebook correspondant et lancez **Run All**.
+Ouvrez le notebook correspondant et lancez **Run All** en VSCode.
